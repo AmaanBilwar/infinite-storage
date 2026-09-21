@@ -14,6 +14,8 @@ enum Commands {
     ListBuckets,
     CreateBucket { bucket_name: String },
     DeleteBucket { bucket_name: String },
+    // this should be file name
+    Upload { bucket_name: String },
 }
 
 #[tokio::main]
@@ -49,6 +51,18 @@ async fn main() -> Result<(), s3::Error> {
         // delete a bucket
         Commands::DeleteBucket{ bucket_name } => {
             client
+                .delete_bucket()
+                .bucket(&bucket_name)
+                .send()
+                .await?;
+
+            println!("deleted {bucket_name}");
+            }
+        // upload to a bucket
+        // this should be file name instead
+        Commands::Upload{ bucket_name } => {
+            client
+                // upload instead
                 .delete_bucket()
                 .bucket(&bucket_name)
                 .send()
