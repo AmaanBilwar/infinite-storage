@@ -1,0 +1,3 @@
+- create more drives(buckets)
+- upload (putobject) into the drives
+- use files (stream)
