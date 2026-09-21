@@ -1,0 +1,4 @@
+{
+  // Do not exclude Git metadata from this project's file tree.
+  "file_scan_exclusions": []
+}
