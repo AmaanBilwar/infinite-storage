@@ -12,6 +12,7 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Commands {
     ListBuckets,
+    CreateBucket { bucket_name: String },
 }
 
 #[tokio::main]
@@ -20,6 +21,7 @@ async fn main() -> Result<(), s3::Error> {
     let cli = Cli::parse();
     let config = aws_config::load_from_env().await;
     let client = aws_sdk_s3::Client::new(&config);
+    // this needs to be abstracted away eventually
     match cli.command {
         Commands::ListBuckets => {
             let output = client.list_buckets().send().await?;
@@ -28,6 +30,11 @@ async fn main() -> Result<(), s3::Error> {
                     println!("{name}")
                 }
             }
+        }
+        // create bucket
+        Commands::CreateBucket { bucket_name } => {
+            let response = client.create_bucket().send().await?;
+            println!("{bucket_name}")
         }
     }
 
