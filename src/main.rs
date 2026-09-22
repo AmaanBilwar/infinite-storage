@@ -3,6 +3,28 @@ use aws_sdk_s3 as s3;
 use clap::Parser;
 use dotenv::dotenv;
 use tokio;
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DriveConfig {
+    id: String, 
+    label: String,
+    bucket: String,
+    letter: char,
+    active: bool,
+}
+#[derive(Debug, Serialize, Deserialize)]
+struct DefaultSettings {
+    region:String,
+    bucket_prefix:String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AppConfig {
+    version: u32,
+    defaults: DefaultSettings,
+    drives: Vec<DriveConfig>,
+}
 
 #[derive(Parser)]
 #[command(name = "ise")]
