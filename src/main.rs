@@ -5,20 +5,48 @@ use dotenv::dotenv;
 use tokio;
 
 #[derive(Parser)]
+#[command(name = "ise")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 #[derive(clap::Subcommand)]
 enum Commands {
-    ListBuckets,
-    CreateBucket { bucket_name: String },
+    Drive {
+        #[command(subcommand)]
+        command: DriveCommands,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum DriveCommands {
+    List,
+    Create { bucket_name: String },
     DeleteBucket { bucket_name: String },
-    DeleteFile { bucket_name:String, file_name : String },
+    Delete { bucket_name:String, file_name : String },
     DeleteFiles { bucket_name:String, file_names : Vec<String> },
-    RenameFile { bucket_name:String, old_file_name : String, new_file_name : String },
-    // upload one file
-    // upload multiple files
+    Rename { bucket_name:String, old_file_name : String, new_file_name : String },
+    Add {
+        label: String,
+        #[arg(long)]
+        letter: Option<char>,
+        #[arg(long)]
+        bucket: Option<String>,
+    },
+    Update {
+        label: String,
+        #[arg(long)]
+        letter: Option<char>,
+        #[arg(long)]
+        inactive: bool,
+    },
+    Remove { label: String },
+    Sync {
+        #[arg(long)]
+        check: bool,
+    },
+}
+
 }
 
 
@@ -121,30 +149,33 @@ async fn main() -> Result<(), s3::Error> {
     let cli = Cli::parse();
     let client = client_builder().await; 
     match cli.command {
-        Commands::ListBuckets => {
-            list_buckets(&client).await?;
-        }
-        // create bucket
-        Commands::CreateBucket { bucket_name } => {
-            create_bucket(&client, bucket_name).await?;
-        }
-        // delete a bucket
-        Commands::DeleteBucket{ bucket_name } => {
-            delete_bucket(&client, bucket_name).await?;
-        }
-         // delete one file 
-        Commands::DeleteFile{ bucket_name, file_name } => {
-            delete_file(&client, bucket_name, file_name).await?;
-        }
-        // delete multiples files
-        Commands::DeleteFiles{ bucket_name, file_names } => {
-            delete_files(&client, bucket_name, file_names).await?;
-        }
-        // rename a file
-        Commands::RenameFile{ bucket_name, old_file_name, new_file_name } => {
-            rename_file(&client, bucket_name, old_file_name, new_file_name ).await?;
-}
-}
+        Commands::Drive { command } => match command {
+            DriveCommands::List => {
+                list_buckets(&client).await?;
+            }
+            DriveCommands::Create { bucket_name } => {
+                create_bucket(&client, bucket_name).await?;
+            }
+            DriveCommands::DeleteBucket{ bucket_name } => {
+                delete_bucket(&client, bucket_name).await?;
+            }
+            DriveCommands::Delete{ bucket_name, file_name } => {
+                delete_file(&client, bucket_name, file_name).await?;
+            }
+            DriveCommands::DeleteFiles{ bucket_name, file_names } => {
+                delete_files(&client, bucket_name, file_names).await?;
+            }
+            DriveCommands::Rename{ bucket_name, old_file_name, new_file_name } => {
+                rename_file(&client, bucket_name, old_file_name, new_file_name ).await?;
+            }
+            DriveCommands::Add { .. }
+            | DriveCommands::Update { .. }
+            | DriveCommands::Remove { .. }
+            | DriveCommands::Sync { .. } => {
+                println!("Config drive commands are not implemented yet");
+            }
+        },
+    }
 
     Ok(())
 }
