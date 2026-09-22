@@ -5,6 +5,10 @@ use dotenv::dotenv;
 use tokio;
 use serde::{Serialize, Deserialize};
 
+const CONFIG_VERSION:u32 = 1;
+const REGION: &str = "us-east-1";
+const BUCKET_PREFIX: &str = "ise";
+
 #[derive(Debug, Serialize, Deserialize)]
 struct DriveConfig {
     id: String, 
