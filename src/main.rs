@@ -73,6 +73,17 @@ enum DriveCommands {
     },
 }
 
+// namethis function better
+fn create_config(drives: Vec<DriveConfig>) -> AppConfig {
+    AppConfig {
+        version: CONFIG_VERSION,
+        defaults: DefaultSettings {
+            region: REGION.to_owned(),
+            bucket_prefix: BUCKET_PREFIX.to_owned()
+        },
+        drives
+
+    }
 }
 
 async fn client_builder(region: &str) -> s3::Client {
@@ -160,7 +171,7 @@ Ok(())
 }
 
 async fn rename_file(client: &s3::Client, bucket_name:String, old_file_name:String, new_file_name:String) -> Result<(), s3::Error>{
-    let _ =   client
+    let _ = client
         .rename_object()
         .bucket(&bucket_name)
         .rename_source(&old_file_name)
@@ -176,7 +187,8 @@ async fn rename_file(client: &s3::Client, bucket_name:String, old_file_name:Stri
 async fn main() -> Result<(), s3::Error> {
     dotenv().ok();
     let cli = Cli::parse();
-    let client = client_builder().await; 
+    let config = create_config(Vec::new());
+    let client = client_builder(&config.defaults.region).await; 
     match cli.command {
         Commands::Drive { command } => match command {
             DriveCommands::List => {
