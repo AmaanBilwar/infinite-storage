@@ -75,9 +75,12 @@ enum DriveCommands {
 
 }
 
+async fn client_builder(region: &str) -> s3::Client {
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(aws_config::Region::new(region.to_owned()))
+        .load()
+        .await;
 
-async fn client_builder() -> s3::Client {
-    let config = aws_config::load_from_env().await;
     s3::Client::new(&config)
 }
 
