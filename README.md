@@ -37,7 +37,6 @@ example config:
 }
 ```
 
-
-- to delete a bucket it needs to be empty first
 - bucket creation namespace stuff needs to be addressed
+    - is adding `ise-` enough?
 - i need to figure out howto be able to navigate inside a bucket
