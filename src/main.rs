@@ -135,7 +135,7 @@ async fn list_buckets(client: &s3::Client) -> Result<(), s3::Error> {
     Ok(())
 }
 
-async fn create_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3::Error>{
+async fn create_bucket(client: &s3::Client, config: &mut AppConfig, bucket_name:String) -> Result<(), s3::Error>{
     let full_name = format!("{BUCKET_PREFIX}-{bucket_name}");
     let _ = client
         .create_bucket()
@@ -143,17 +143,34 @@ async fn create_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3
         .send()
         .await?;
     println!("Created {full_name}");
+   if !config.drives.iter().any(|d| d.bucket == full_name) {
+        config.drives.push(DriveConfig {
+            id: full_name.clone(),
+            label: bucket_name,
+            bucket: full_name,
+            letter: 'D',
+            active: true,
+        });
+    }
+    if let Err(e) = save_config(config) {
+        eprintln!("warning: could not save config: {e}");
+    }
     Ok(())
 }
 
-async fn delete_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3::Error>{
+async fn delete_bucket(client: &s3::Client, config: &mut AppConfig, bucket_name:String) -> Result<(), s3::Error>{
+    let full_name = if bucket_name.starts_with(&format!("{BUCKET_PREFIX}-")) {
+        bucket_name
+    } else {
+        format!("{BUCKET_PREFIX}-{bucket_name}")
+    };
     // Versioning is off, so just empty live objects (paginated, single pass).
     let mut all_keys: Vec<String> = Vec::new();
     let mut token: Option<String> = None;
     loop {
         let resp = client
             .list_objects_v2()
-            .bucket(&bucket_name)
+            .bucket(&full_name)
             .set_continuation_token(token.clone())
             .send()
             .await?;
@@ -170,13 +187,18 @@ async fn delete_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3
     }
 
     if !all_keys.is_empty() {
-        delete_files(client, bucket_name.clone(), all_keys).await?;
+        delete_files(client, full_name.clone(), all_keys).await?;
     }
 
     client.delete_bucket()
-        .bucket(&bucket_name)
+        .bucket(&full_name)
         .send().await?;
-    println!("Deleted {bucket_name}");
+    println!("Deleted {full_name}");
+
+   config.drives.retain(|d| d.bucket != full_name);
+    if let Err(e) = save_config(config) {
+        eprintln!("warning: could not save config: {e}");
+    }
     Ok(())
 }
 
@@ -189,7 +211,7 @@ async fn delete_file(client: &s3::Client, bucket_name:String, file_name:String) 
         .await?;
 
     println!("deleted {file_name}");
-    Ok(())
+     Ok(())
 }
 
 
@@ -244,7 +266,7 @@ async fn rename_file(client: &s3::Client, bucket_name:String, old_file_name:Stri
 async fn main() -> Result<(), s3::Error> {
     dotenv().ok();
     let cli = Cli::parse();
-    let config = create_config(Vec::new());
+    let mut config = load_config();
     let client = client_builder(&config.defaults.region).await; 
     match cli.command {
         Commands::Drive { command } => match command {
@@ -252,10 +274,10 @@ async fn main() -> Result<(), s3::Error> {
                 list_buckets(&client).await?;
             }
             DriveCommands::Create { bucket_name } => {
-                create_bucket(&client, bucket_name).await?;
+                create_bucket(&client, &mut config, bucket_name).await?;
             }
             DriveCommands::DeleteBucket{ bucket_name } => {
-                delete_bucket(&client, bucket_name).await?;
+                delete_bucket(&client, &mut config, bucket_name).await?;
             }
             DriveCommands::Delete{ bucket_name, file_name } => {
                 delete_file(&client, bucket_name, file_name).await?;
