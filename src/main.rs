@@ -109,12 +109,13 @@ async fn list_buckets(client: &s3::Client) -> Result<(), s3::Error> {
 }
 
 async fn create_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3::Error>{
+    let full_name = format!("{BUCKET_PREFIX}-{bucket_name}");
     let _ = client
         .create_bucket()
-        .bucket(&bucket_name)
+        .bucket(&full_name)
         .send()
         .await?;
-    println!("Created {bucket_name}");
+    println!("Created {full_name}");
     Ok(())
 }
 
