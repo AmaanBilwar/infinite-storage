@@ -120,12 +120,36 @@ async fn create_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3
 }
 
 async fn delete_bucket(client: &s3::Client, bucket_name:String) -> Result<(), s3::Error>{
-    let _ = client
-        .delete_bucket()
+    // Versioning is off, so just empty live objects (paginated, single pass).
+    let mut all_keys: Vec<String> = Vec::new();
+    let mut token: Option<String> = None;
+    loop {
+        let resp = client
+            .list_objects_v2()
+            .bucket(&bucket_name)
+            .set_continuation_token(token.clone())
+            .send()
+            .await?;
+        all_keys.extend(
+            resp.contents()
+                .iter()
+                .filter_map(|obj| obj.key().map(|k| k.to_owned())),
+        );
+        if resp.is_truncated().unwrap_or(false) {
+            token = resp.next_continuation_token().map(|s| s.to_owned());
+        } else {
+            break;
+        }
+    }
+
+    if !all_keys.is_empty() {
+        delete_files(client, bucket_name.clone(), all_keys).await?;
+    }
+
+    client.delete_bucket()
         .bucket(&bucket_name)
-        .send()
-        .await?;
-    println!("Created {bucket_name}");
+        .send().await?;
+    println!("Deleted {bucket_name}");
     Ok(())
 }
 
@@ -143,31 +167,36 @@ async fn delete_file(client: &s3::Client, bucket_name:String, file_name:String) 
 
 
 async fn delete_files(client: &s3::Client, bucket_name:String, file_names:Vec<String>) -> Result<(), s3::Error>{
-    // delete multiple files
-    // ai wrote this idk whats happening 
-    let objects = file_names
-        .iter()
-        .map(|file_name| {
-            s3::types::ObjectIdentifier::builder()
-                .key(file_name)
+    // delete multiple files (S3 caps at 1000 keys per call, so chunk)
+    for chunk in file_names.chunks(1000) {
+        let objects = chunk
+            .iter()
+            .map(|file_name| {
+                s3::types::ObjectIdentifier::builder()
+                    .key(file_name)
+                    .build()
+                    .expect("an S3 object key is required")
+            })
+        .collect();
+
+        let resp = client
+            .delete_objects()
+            .bucket(&bucket_name)
+            .delete(
+                s3::types::Delete::builder()
+                .set_objects(Some(objects))
                 .build()
-                .expect("an S3 object key is required")
-        })
-    .collect();
+                .expect("at least one S3 object is required"),
+            )
+            .send()
+            .await?;
 
-    client
-        .delete_objects()
-        .bucket(&bucket_name)
-        .delete(
-            s3::types::Delete::builder()
-            .set_objects(Some(objects))
-            .build()
-            .expect("at least one S3 object is required"),
-        )
-        .send()
-        .await?;
-
-    println!("deleted {}", file_names.join(", "));
+        println!("deleted {}", chunk.join(", "));
+        for err in resp.errors() {
+            eprintln!("failed {:?}: {:?} - {:?}", err.key(), err.code(), err.message());
+        }
+        eprintln!("deleted_ok={} errors={}", resp.deleted().len(), resp.errors().len());
+    }
 Ok(())
 }
 
