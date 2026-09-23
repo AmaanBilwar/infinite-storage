@@ -4,6 +4,7 @@ use clap::Parser;
 use dotenv::dotenv;
 use tokio;
 use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
 
 const CONFIG_VERSION:u32 = 1;
 const REGION: &str = "us-east-1";
@@ -73,6 +74,10 @@ enum DriveCommands {
     },
 }
 
+fn config_file_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|p| p.join("ise").join("ise-config.json"))
+}
+
 // namethis function better
 fn create_config(drives: Vec<DriveConfig>) -> AppConfig {
     AppConfig {
@@ -84,6 +89,28 @@ fn create_config(drives: Vec<DriveConfig>) -> AppConfig {
         drives
 
     }
+}
+
+fn load_config() -> AppConfig {
+    if let Some(path) = config_file_path()
+        && let Ok(data) = std::fs::read_to_string(&path)
+        && let Ok(cfg) = serde_json::from_str(&data)
+    {
+        return cfg;
+    }
+    create_config(Vec::new())
+}
+
+fn save_config(config: &AppConfig) -> std::io::Result<()> {
+    let path = config_file_path().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir")
+    })?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let data = serde_json::to_string_pretty(config)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, data)
 }
 
 async fn client_builder(region: &str) -> s3::Client {
