@@ -1,6 +1,3 @@
-- [x] extract these out to separate funcs then call them in `Commands`
-- [x] create more drives(buckets)
-- [x] delete drives(buckets)
 - upload (putobject) into the drives
 - use files (stream)
 
