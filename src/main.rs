@@ -2,17 +2,22 @@ use aws_config;
 use aws_sdk_s3 as s3;
 use clap::Parser;
 use dotenv::dotenv;
-use tokio;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tokio;
 
-const CONFIG_VERSION:u32 = 1;
+mod fs_mapping;
+
+#[cfg(windows)]
+mod winfsp_fs;
+
+const CONFIG_VERSION: u32 = 1;
 const REGION: &str = "us-east-1";
 const BUCKET_PREFIX: &str = "ise";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct DriveConfig {
-    id: String, 
+    id: String,
     label: String,
     bucket: String,
     letter: char,
@@ -20,8 +25,8 @@ struct DriveConfig {
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct DefaultSettings {
-    region:String,
-    bucket_prefix:String,
+    region: String,
+    bucket_prefix: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,11 +53,25 @@ enum Commands {
 #[derive(clap::Subcommand)]
 enum DriveCommands {
     List,
-    Create { bucket_name: String },
-    DeleteBucket { bucket_name: String },
-    Delete { bucket_name:String, file_name : String },
-    DeleteFiles { bucket_name:String, file_names : Vec<String> },
-    Rename { bucket_name:String, old_file_name : String, new_file_name : String },
+    Create {
+        bucket_name: String,
+    },
+    DeleteBucket {
+        bucket_name: String,
+    },
+    Delete {
+        bucket_name: String,
+        file_name: String,
+    },
+    DeleteFiles {
+        bucket_name: String,
+        file_names: Vec<String>,
+    },
+    Rename {
+        bucket_name: String,
+        old_file_name: String,
+        new_file_name: String,
+    },
     Add {
         label: String,
         #[arg(long)]
@@ -67,7 +86,12 @@ enum DriveCommands {
         #[arg(long)]
         inactive: bool,
     },
-    Remove { label: String },
+    Remove {
+        label: String,
+    },
+    Mount {
+        label: String,
+    },
     Sync {
         #[arg(long)]
         check: bool,
@@ -84,10 +108,9 @@ fn create_config(drives: Vec<DriveConfig>) -> AppConfig {
         version: CONFIG_VERSION,
         defaults: DefaultSettings {
             region: REGION.to_owned(),
-            bucket_prefix: BUCKET_PREFIX.to_owned()
+            bucket_prefix: BUCKET_PREFIX.to_owned(),
         },
-        drives
-
+        drives,
     }
 }
 
@@ -102,9 +125,8 @@ fn load_config() -> AppConfig {
 }
 
 fn save_config(config: &AppConfig) -> std::io::Result<()> {
-    let path = config_file_path().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir")
-    })?;
+    let path = config_file_path()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no config dir"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -123,10 +145,7 @@ async fn client_builder(region: &str) -> s3::Client {
 }
 
 async fn list_buckets(client: &s3::Client) -> Result<(), s3::Error> {
-    let output = client
-        .list_buckets()
-        .send()
-        .await?;
+    let output = client.list_buckets().send().await?;
     for bucket in output.buckets() {
         if let Some(name) = bucket.name() {
             println!("{name}")
@@ -135,15 +154,15 @@ async fn list_buckets(client: &s3::Client) -> Result<(), s3::Error> {
     Ok(())
 }
 
-async fn create_bucket(client: &s3::Client, config: &mut AppConfig, bucket_name:String) -> Result<(), s3::Error>{
+async fn create_bucket(
+    client: &s3::Client,
+    config: &mut AppConfig,
+    bucket_name: String,
+) -> Result<(), s3::Error> {
     let full_name = format!("{BUCKET_PREFIX}-{bucket_name}");
-    let _ = client
-        .create_bucket()
-        .bucket(&full_name)
-        .send()
-        .await?;
+    let _ = client.create_bucket().bucket(&full_name).send().await?;
     println!("Created {full_name}");
-   if !config.drives.iter().any(|d| d.bucket == full_name) {
+    if !config.drives.iter().any(|d| d.bucket == full_name) {
         config.drives.push(DriveConfig {
             id: full_name.clone(),
             label: bucket_name,
@@ -158,7 +177,11 @@ async fn create_bucket(client: &s3::Client, config: &mut AppConfig, bucket_name:
     Ok(())
 }
 
-async fn delete_bucket(client: &s3::Client, config: &mut AppConfig, bucket_name:String) -> Result<(), s3::Error>{
+async fn delete_bucket(
+    client: &s3::Client,
+    config: &mut AppConfig,
+    bucket_name: String,
+) -> Result<(), s3::Error> {
     let full_name = if bucket_name.starts_with(&format!("{BUCKET_PREFIX}-")) {
         bucket_name
     } else {
@@ -190,19 +213,21 @@ async fn delete_bucket(client: &s3::Client, config: &mut AppConfig, bucket_name:
         delete_files(client, full_name.clone(), all_keys).await?;
     }
 
-    client.delete_bucket()
-        .bucket(&full_name)
-        .send().await?;
+    client.delete_bucket().bucket(&full_name).send().await?;
     println!("Deleted {full_name}");
 
-   config.drives.retain(|d| d.bucket != full_name);
+    config.drives.retain(|d| d.bucket != full_name);
     if let Err(e) = save_config(config) {
         eprintln!("warning: could not save config: {e}");
     }
     Ok(())
 }
 
-async fn delete_file(client: &s3::Client, bucket_name:String, file_name:String) -> Result<(), s3::Error>{
+async fn delete_file(
+    client: &s3::Client,
+    bucket_name: String,
+    file_name: String,
+) -> Result<(), s3::Error> {
     let _ = client
         .delete_object()
         .bucket(&bucket_name)
@@ -211,11 +236,14 @@ async fn delete_file(client: &s3::Client, bucket_name:String, file_name:String) 
         .await?;
 
     println!("deleted {file_name}");
-     Ok(())
+    Ok(())
 }
 
-
-async fn delete_files(client: &s3::Client, bucket_name:String, file_names:Vec<String>) -> Result<(), s3::Error>{
+async fn delete_files(
+    client: &s3::Client,
+    bucket_name: String,
+    file_names: Vec<String>,
+) -> Result<(), s3::Error> {
     // delete multiple files (S3 caps at 1000 keys per call, so chunk)
     for chunk in file_names.chunks(1000) {
         let objects = chunk
@@ -226,30 +254,44 @@ async fn delete_files(client: &s3::Client, bucket_name:String, file_names:Vec<St
                     .build()
                     .expect("an S3 object key is required")
             })
-        .collect();
+            .collect();
 
         let resp = client
             .delete_objects()
             .bucket(&bucket_name)
             .delete(
                 s3::types::Delete::builder()
-                .set_objects(Some(objects))
-                .build()
-                .expect("at least one S3 object is required"),
+                    .set_objects(Some(objects))
+                    .build()
+                    .expect("at least one S3 object is required"),
             )
             .send()
             .await?;
 
         println!("deleted {}", chunk.join(", "));
         for err in resp.errors() {
-            eprintln!("failed {:?}: {:?} - {:?}", err.key(), err.code(), err.message());
+            eprintln!(
+                "failed {:?}: {:?} - {:?}",
+                err.key(),
+                err.code(),
+                err.message()
+            );
         }
-        eprintln!("deleted_ok={} errors={}", resp.deleted().len(), resp.errors().len());
+        eprintln!(
+            "deleted_ok={} errors={}",
+            resp.deleted().len(),
+            resp.errors().len()
+        );
     }
-Ok(())
+    Ok(())
 }
 
-async fn rename_file(client: &s3::Client, bucket_name:String, old_file_name:String, new_file_name:String) -> Result<(), s3::Error>{
+async fn rename_file(
+    client: &s3::Client,
+    bucket_name: String,
+    old_file_name: String,
+    new_file_name: String,
+) -> Result<(), s3::Error> {
     let _ = client
         .rename_object()
         .bucket(&bucket_name)
@@ -262,12 +304,45 @@ async fn rename_file(client: &s3::Client, bucket_name:String, old_file_name:Stri
     Ok(())
 }
 
+#[cfg(windows)]
+async fn mount_configured_drive(client: &s3::Client, config: &AppConfig, label: String) {
+    let Some(drive) = config.drives.iter().find(|d| d.label == label) else {
+        eprintln!("no drive configured with label '{label}'");
+        return;
+    };
+    if !drive.active {
+        eprintln!("drive '{label}' is not active");
+        return;
+    }
+    let handle = tokio::runtime::Handle::current();
+    if let Err(e) = winfsp_fs::run_mount(
+        client.clone(),
+        drive.label.clone(),
+        drive.bucket.clone(),
+        drive.letter,
+        handle,
+    )
+    .await
+    {
+        eprintln!("{e}");
+    }
+}
+
+#[cfg(not(windows))]
+async fn mount_configured_drive(_client: &s3::Client, config: &AppConfig, label: String) {
+    if !config.drives.iter().any(|d| d.label == label) {
+        eprintln!("no drive configured with label '{label}'");
+        return;
+    }
+    eprintln!("mount is only supported on Windows (WinFSP)");
+}
+
 #[tokio::main]
 async fn main() -> Result<(), s3::Error> {
     dotenv().ok();
     let cli = Cli::parse();
     let mut config = load_config();
-    let client = client_builder(&config.defaults.region).await; 
+    let client = client_builder(&config.defaults.region).await;
     match cli.command {
         Commands::Drive { command } => match command {
             DriveCommands::List => {
@@ -276,17 +351,30 @@ async fn main() -> Result<(), s3::Error> {
             DriveCommands::Create { bucket_name } => {
                 create_bucket(&client, &mut config, bucket_name).await?;
             }
-            DriveCommands::DeleteBucket{ bucket_name } => {
+            DriveCommands::DeleteBucket { bucket_name } => {
                 delete_bucket(&client, &mut config, bucket_name).await?;
             }
-            DriveCommands::Delete{ bucket_name, file_name } => {
+            DriveCommands::Delete {
+                bucket_name,
+                file_name,
+            } => {
                 delete_file(&client, bucket_name, file_name).await?;
             }
-            DriveCommands::DeleteFiles{ bucket_name, file_names } => {
+            DriveCommands::DeleteFiles {
+                bucket_name,
+                file_names,
+            } => {
                 delete_files(&client, bucket_name, file_names).await?;
             }
-            DriveCommands::Rename{ bucket_name, old_file_name, new_file_name } => {
-                rename_file(&client, bucket_name, old_file_name, new_file_name ).await?;
+            DriveCommands::Rename {
+                bucket_name,
+                old_file_name,
+                new_file_name,
+            } => {
+                rename_file(&client, bucket_name, old_file_name, new_file_name).await?;
+            }
+            DriveCommands::Mount { label } => {
+                mount_configured_drive(&client, &config, label).await;
             }
             DriveCommands::Add { .. }
             | DriveCommands::Update { .. }
