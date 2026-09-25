@@ -9,6 +9,7 @@
 - storage engine reads write to and from the bucket
 
 
+where the configs are stored:
 - Linux: ~/.config/infinite-storage-engine/config.json
 - Windows: %APPDATA%\infinite-storage-engine\config.json
 
